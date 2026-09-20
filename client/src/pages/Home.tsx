@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState, type ComponentType, type FormEvent } from
 import { useLocation } from "wouter";
 import { toast } from "sonner";
 import type { Session } from "@supabase/supabase-js";
-import { supabase } from "@/lib/supabase";
+import { getAuthRedirectUrl, supabase } from "@/lib/supabase";
 import {
   AlertTriangle,
   ArrowDownRight,
@@ -293,7 +293,7 @@ function LandingPage({ go }: { go: (path: string) => void }) {
   );
 }
 
-function AuthPage({ mode, go }: { mode: "login" | "signup"; go: (path: string) => void }) {
+function AuthPage({ mode, go }: { mode: "login" | "signup" | "recovery"; go: (path: string) => void }) {
   const [showPassword, setShowPassword] = useState(false);
   const [fullName, setFullName] = useState("");
   const [email, setEmail] = useState("");
@@ -302,7 +302,8 @@ function AuthPage({ mode, go }: { mode: "login" | "signup"; go: (path: string) =
   const [remember, setRemember] = useState(true);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
-  const isLogin = mode === "login";
+  const isRecovery = mode === "recovery";
+  const isLogin = mode === "login" || isRecovery;
 
   const submit = async (event: FormEvent) => {
     event.preventDefault();
@@ -312,9 +313,22 @@ function AuthPage({ mode, go }: { mode: "login" | "signup"; go: (path: string) =
       return;
     }
     setLoading(true);
+    if (isRecovery) {
+      const { error: recoveryError } = await supabase.auth.updateUser({ password });
+      setLoading(false);
+      if (recoveryError) {
+        setError(recoveryError.message);
+        return;
+      }
+      await supabase.auth.signOut();
+      window.history.replaceState({}, "", "/login");
+      toast.success("Password updated. You can now sign in.");
+      go("/login");
+      return;
+    }
     const result = isLogin
       ? await supabase.auth.signInWithPassword({ email, password })
-      : await supabase.auth.signUp({ email, password, options: { data: { full_name: fullName } } });
+      : await supabase.auth.signUp({ email, password, options: { data: { full_name: fullName }, emailRedirectTo: getAuthRedirectUrl("/login") } });
     setLoading(false);
     if (result.error) {
       setError(result.error.message.replace("Invalid login credentials", "Email or password is incorrect."));
@@ -329,7 +343,9 @@ function AuthPage({ mode, go }: { mode: "login" | "signup"; go: (path: string) =
     go("/overview");
   };
 
-  return <div className="min-h-screen bg-[#1c2944] text-white"><div className="mx-auto grid min-h-screen max-w-[1240px] lg:grid-cols-[.85fr_1.15fr]"><div className="hidden flex-col justify-between p-10 lg:flex"><div><button onClick={() => go("/")}><Logo dark /></button><div className="mt-28 max-w-[420px]"><div className="eyebrow eyebrow-dark mb-6"><span className="h-1.5 w-1.5 rounded-full bg-[#cce57a]" />YOUR MONEY, IN CONTEXT</div><h1 className="font-display text-6xl leading-[1.02] tracking-[-.05em]">A calmer way<br />to make <em className="text-[#cce57a]">money moves.</em></h1><p className="mt-7 max-w-[380px] text-[15px] leading-7 text-white/55">Flowlence gives your fluctuating income a little more structure — without asking it to behave like a salary.</p></div></div><div className="flex items-center gap-2 text-[12px] text-white/45"><LockKeyhole size={14} /> Your data stays yours.</div></div><div className="flex items-center justify-center bg-[#f7f7f3] px-5 py-10 text-[#1c2944] sm:px-10"><div className="w-full max-w-[430px]"><div className="mb-10 lg:hidden"><button onClick={() => go("/")}><Logo /></button></div><div className="mb-8"><div className="eyebrow mb-5"><span className="h-1.5 w-1.5 rounded-full bg-[#6674f7]" />{isLogin ? "WELCOME BACK" : "START YOUR FLOW"}</div><h2 className="font-display text-5xl tracking-[-.055em]">{isLogin ? "Good to see you." : "Make room for better decisions."}</h2><p className="mt-3 text-[14px] text-[#778198]">{isLogin ? "Sign in to continue where you left off." : "Create a free workspace for your irregular income."}</p></div><form onSubmit={submit} className="space-y-4">{!isLogin && <label className="field-label">Full name<input required value={fullName} onChange={e => setFullName(e.target.value)} className="field-input" placeholder="Aarav Mehta" /></label>}<label className="field-label">Email address<input type="email" required value={email} onChange={e => setEmail(e.target.value)} className="field-input" placeholder="you@example.com" /></label><label className="field-label">Password<div className="relative"><input type={showPassword ? "text" : "password"} required minLength={6} value={password} onChange={e => setPassword(e.target.value)} className="field-input pr-12" placeholder="••••••••" /><button type="button" onClick={() => setShowPassword(!showPassword)} className="absolute right-3 top-1/2 -translate-y-1/2 text-[#8b94a8]">{showPassword ? <EyeIcon /> : <EyeOffIcon />}</button></div></label>{!isLogin && <label className="field-label">Confirm password<input type="password" required minLength={6} value={confirmPassword} onChange={e => setConfirmPassword(e.target.value)} className="field-input" placeholder="••••••••" /></label>}{isLogin && <div className="flex items-center justify-between text-[12px]"><label className="flex items-center gap-2 text-[#778198]"><input type="checkbox" checked={remember} onChange={e => setRemember(e.target.checked)} className="accent-[#6674f7]" /> Remember me</label><button type="button" onClick={() => toast("Password recovery will be enabled from your Supabase email settings.")} className="font-bold text-[#6674f7]">Forgot password?</button></div>}{error && <div role="alert" className="rounded-xl border border-[#f0caca] bg-[#fff0f0] px-3.5 py-3 text-[12px] font-semibold leading-5 text-[#a96161]">{error}</div>}<Button type="submit" variant="dark" className="mt-3 w-full" disabled={loading}>{loading ? "Connecting securely…" : isLogin ? "Sign in to Flowlence" : "Create my workspace"}{!loading && <ArrowRight size={15} />}</Button></form><div className="my-7 flex items-center gap-3 text-[11px] font-semibold text-[#a0a7b6]"><span className="h-px flex-1 bg-[#e2e4e9]" />EMAIL & PASSWORD<span className="h-px flex-1 bg-[#e2e4e9]" /></div><p className="text-center text-[11px] leading-5 text-[#9aa2b2]">Your account and financial data are protected by Supabase Auth and per-user database policies.</p><p className="mt-8 text-center text-[13px] text-[#778198]">{isLogin ? "New to Flowlence?" : "Already have an account?"} <button className="font-bold text-[#6674f7]" onClick={() => go(isLogin ? "/signup" : "/login")}>{isLogin ? "Create an account" : "Sign in"}</button></p></div></div></div></div>;
+  const requestPasswordReset = async () => { if (!email) { setError("Enter your email address first."); return; } setLoading(true); const { error: resetError } = await supabase.auth.resetPasswordForEmail(email, { redirectTo: getAuthRedirectUrl("/login") }); setLoading(false); if (resetError) { setError(resetError.message); return; } toast.success("Check your email for a password reset link."); };
+
+  return <div className="min-h-screen bg-[#1c2944] text-white"><div className="mx-auto grid min-h-screen max-w-[1240px] lg:grid-cols-[.85fr_1.15fr]"><div className="hidden flex-col justify-between p-10 lg:flex"><div><button onClick={() => go("/")}><Logo dark /></button><div className="mt-28 max-w-[420px]"><div className="eyebrow eyebrow-dark mb-6"><span className="h-1.5 w-1.5 rounded-full bg-[#cce57a]" />YOUR MONEY, IN CONTEXT</div><h1 className="font-display text-6xl leading-[1.02] tracking-[-.05em]">A calmer way<br />to make <em className="text-[#cce57a]">money moves.</em></h1><p className="mt-7 max-w-[380px] text-[15px] leading-7 text-white/55">Flowlence gives your fluctuating income a little more structure — without asking it to behave like a salary.</p></div></div><div className="flex items-center gap-2 text-[12px] text-white/45"><LockKeyhole size={14} /> Your data stays yours.</div></div><div className="flex items-center justify-center bg-[#f7f7f3] px-5 py-10 text-[#1c2944] sm:px-10"><div className="w-full max-w-[430px]"><div className="mb-10 lg:hidden"><button onClick={() => go("/")}><Logo /></button></div><div className="mb-8"><div className="eyebrow mb-5"><span className="h-1.5 w-1.5 rounded-full bg-[#6674f7]" />{isRecovery ? "RESET YOUR PASSWORD" : isLogin ? "WELCOME BACK" : "START YOUR FLOW"}</div><h2 className="font-display text-5xl tracking-[-.055em]">{isRecovery ? "Choose a new password." : isLogin ? "Good to see you." : "Make room for better decisions."}</h2><p className="mt-3 text-[14px] text-[#778198]">{isRecovery ? "Set a new password for your Flowlence account." : isLogin ? "Sign in to continue where you left off." : "Create a free workspace for your irregular income."}</p></div><form onSubmit={submit} className="space-y-4">{!isLogin && <label className="field-label">Full name<input required value={fullName} onChange={e => setFullName(e.target.value)} className="field-input" placeholder="Aarav Mehta" /></label>}<label className="field-label">Email address<input type="email" required value={email} onChange={e => setEmail(e.target.value)} className="field-input" placeholder="you@example.com" /></label><label className="field-label">Password<div className="relative"><input type={showPassword ? "text" : "password"} required minLength={6} value={password} onChange={e => setPassword(e.target.value)} className="field-input pr-12" placeholder="••••••••" /><button type="button" onClick={() => setShowPassword(!showPassword)} className="absolute right-3 top-1/2 -translate-y-1/2 text-[#8b94a8]">{showPassword ? <EyeIcon /> : <EyeOffIcon />}</button></div></label>{!isLogin && <label className="field-label">Confirm password<input type="password" required minLength={6} value={confirmPassword} onChange={e => setConfirmPassword(e.target.value)} className="field-input" placeholder="••••••••" /></label>}{isLogin && !isRecovery && <div className="flex items-center justify-between text-[12px]"><label className="flex items-center gap-2 text-[#778198]"><input type="checkbox" checked={remember} onChange={e => setRemember(e.target.checked)} className="accent-[#6674f7]" /> Remember me</label><button type="button" onClick={requestPasswordReset} className="font-bold text-[#6674f7]">Forgot password?</button></div>}{error && <div role="alert" className="rounded-xl border border-[#f0caca] bg-[#fff0f0] px-3.5 py-3 text-[12px] font-semibold leading-5 text-[#a96161]">{error}</div>}<Button type="submit" variant="dark" className="mt-3 w-full" disabled={loading}>{loading ? "Connecting securely…" : isLogin ? "Sign in to Flowlence" : "Create my workspace"}{!loading && <ArrowRight size={15} />}</Button></form><div className="my-7 flex items-center gap-3 text-[11px] font-semibold text-[#a0a7b6]"><span className="h-px flex-1 bg-[#e2e4e9]" />EMAIL & PASSWORD<span className="h-px flex-1 bg-[#e2e4e9]" /></div><p className="text-center text-[11px] leading-5 text-[#9aa2b2]">Your account and financial data are protected by Supabase Auth and per-user database policies.</p><p className="mt-8 text-center text-[13px] text-[#778198]">{isRecovery ? "Remember your password?" : isLogin ? "New to Flowlence?" : "Already have an account?"} <button className="font-bold text-[#6674f7]" onClick={() => go(isRecovery || !isLogin ? "/login" : "/signup")}>{isRecovery ? "Sign in" : isLogin ? "Create an account" : "Sign in"}</button></p></div></div></div></div>;
 }
 
 function EyeIcon() { return <span className="text-xs">◉</span>; }
@@ -496,9 +512,10 @@ export default function Home() {
 
   useEffect(() => {
     const isPublic = location === "/";
+    const isRecovery = typeof window !== "undefined" && window.location.hash.includes("type=recovery");
     const isAuth = location === "/login" || location === "/signup";
     if (!authLoading && !session && !isPublic && !isAuth) go("/login");
-    if (!authLoading && session && isAuth) go("/overview");
+    if (!authLoading && session && isAuth && !isRecovery) go("/overview");
   }, [authLoading, session, location]);
 
   const income = transactions.filter(t => t.kind === "income").reduce((a, t) => a + t.amount, 0);
@@ -611,7 +628,7 @@ export default function Home() {
   const isPublic = location === "/";
   const isAuth = location === "/login" || location === "/signup";
   if (isPublic) return <LandingPage go={go} />;
-  if (isAuth) return <AuthPage mode={location === "/signup" ? "signup" : "login"} go={go} />;
+  if (isAuth) { const recovery = typeof window !== "undefined" && window.location.hash.includes("type=recovery"); return <AuthPage mode={recovery ? "recovery" : location === "/signup" ? "signup" : "login"} go={go} />; }
   if (authLoading || !session || dataLoading) return <div className="grid min-h-screen place-items-center bg-[#f7f7f3] text-[#66728b]"><div className="text-center"><div className="mx-auto grid h-12 w-12 place-items-center rounded-[15px] bg-[#6674f7] text-white shadow-[0_8px_22px_rgba(102,116,247,.25)]"><span className="text-[17px] font-extrabold tracking-[-.08em]">fl</span></div><div className="mt-5 text-[13px] font-bold">Loading your money picture…</div><div className="mt-2 text-[11px] text-[#9aa2b2]">Securely syncing your Flowlence workspace</div></div></div>;
 
   let page: React.ReactNode = <OverviewPage transactions={transactions} goals={goals} onAdd={openAdd} onSafe={() => setSafeModal(true)} go={go} />;

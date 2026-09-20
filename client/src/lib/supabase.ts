@@ -8,6 +8,11 @@ if (!supabaseUrl || !supabasePublishableKey) {
   throw new Error("Flowlence is missing its Supabase environment configuration.");
 }
 
+export const getAuthRedirectUrl = (path = "/login") => {
+  if (typeof window === "undefined") return path;
+  return new URL(path, window.location.origin).toString();
+};
+
 export const supabase = createClient(supabaseUrl, supabasePublishableKey, {
   auth: {
     persistSession: true,
